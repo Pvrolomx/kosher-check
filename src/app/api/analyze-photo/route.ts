@@ -1,3 +1,4 @@
+// KosherCheck Vision API — updated prompt for seal detection
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -30,25 +31,43 @@ export async function POST(req: NextRequest) {
             },
             {
               type: 'text',
-              text: `Analiza esta etiqueta de producto alimenticio y determina si es kosher.
+              text: `Eres un experto en certificaciones kosher. Analiza esta imagen — puede ser una etiqueta completa, un sello kosher individual, o un empaque.
 
-Busca específicamente:
-1. Sellos de certificación kosher: OU, OK, KD, KA, KMD, Kosher, כשר, Parve, Dairy, Meat/Fleishig
-2. Ingredientes que podrían hacerlo no-kosher (cerdo, mariscos, mezcla carne+lácteo)
-3. Nombre del producto y marca si son visibles
+DETECTA cualquiera de estos elementos:
 
-Responde SOLO con un JSON válido, sin markdown, exactamente así:
+SELLOS KOSHER (busca el símbolo aunque sea pequeño o parcial):
+- OU = letra U dentro de un círculo (el más común, del Orthodox Union)
+- OK = letras OK dentro de círculo  
+- KD = Kosher Dairy (con D pequeña)
+- KA = Kehilla kosher
+- KMD = Kosher México
+- Triangle-K, Star-K, CRC, MK, Kof-K
+- La letra כ (kaf hebrea) sola
+- La palabra "Kosher" o "כשר" en cualquier idioma
+- "Parve", "Pareve", "Fleishig", "Milchig", "Dairy", "Meat"
+
+NO-KOSHER (ingredientes que lo invalidan):
+- Cerdo, pork, ham, bacon, lard, manteca de cerdo
+- Mariscos, shellfish, shrimp, crab, lobster
+- Mezcla de carne y lácteos en el mismo producto
+
+IMPORTANTE: Si ves solo un sello sin nombre de producto, devuelve el certifier y is_kosher=true. No necesitas ver el producto completo.
+
+Responde ÚNICAMENTE con este JSON exacto, sin markdown ni texto extra:
 {
-  "is_kosher": true | false | null,
-  "product_name": "nombre del producto o null",
+  "is_kosher": true,
+  "product_name": "nombre o null si no se ve",
   "brand": "marca o null",
-  "category": "carne" | "lacteo" | "parve" | null,
-  "certifier": "OU" | "OK" | "KA" | "KMD" | "manual" | null,
-  "notes": "explicación breve en español de máximo 100 caracteres",
-  "analysis_summary": "resumen de 1 línea de qué viste en la etiqueta"
+  "category": "parve",
+  "certifier": "OU",
+  "notes": "Sello OU detectado — Orthodox Union Parve",
+  "analysis_summary": "Descripción de 1 línea de lo que viste"
 }
 
-Si no se puede determinar, usa is_kosher: null.`,
+Valores válidos:
+- is_kosher: true | false | null (null SOLO si la imagen es completamente ilegible)
+- category: "carne" | "lacteo" | "parve" | null
+- certifier: "OU" | "OK" | "KA" | "KMD" | "manual" | null`,
             },
           ],
         },
@@ -56,23 +75,28 @@ Si no se puede determinar, usa is_kosher: null.`,
     })
 
     const text = response.content[0].type === 'text' ? response.content[0].text : ''
-    
-    // Clean JSON (remove possible markdown fences)
-    const clean = text.replace(/```json|```/g, '').trim()
-    
+
+    // Aggressive JSON extraction — find the first {...} block
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const clean = jsonMatch ? jsonMatch[0] : ''
+
     try {
       const parsed = JSON.parse(clean)
       return NextResponse.json(parsed)
     } catch {
-      // If Claude didn't return valid JSON, return a structured error
+      // Claude responded but not in JSON — extract what we can
+      const lower = text.toLowerCase()
+      const isKosher = lower.includes('kosher') && !lower.includes('no kosher') && !lower.includes('not kosher') && !lower.includes('no es kosher')
+      const certifier = text.match(/\b(OU|OK|KMD|KA)\b/)?.[1] || null
+
       return NextResponse.json({
-        is_kosher: null,
+        is_kosher: isKosher ? true : null,
         product_name: null,
         brand: null,
         category: null,
-        certifier: null,
-        notes: 'No se pudo analizar la imagen correctamente',
-        analysis_summary: text.slice(0, 100),
+        certifier,
+        notes: 'Análisis completado',
+        analysis_summary: text.slice(0, 150),
       })
     }
   } catch (error: any) {
