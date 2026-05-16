@@ -63,24 +63,24 @@ export default function PhotoAnalyzer({ onResult }: Props) {
         throw new Error(data.error || `Error del servidor (${resp.status})`)
       }
 
+      // SOLO guardar en estado local — NO llamar onResult todavía
+      // Así el componente no se desmonta y el usuario ve el resultado
       setAnalysis(data)
 
+      // Registrar en historial local
       const status: 'kosher' | 'not_kosher' | 'not_found' =
         data.is_kosher === true ? 'kosher' :
-        data.is_kosher === false ? 'not_kosher' :
-        'not_found'
+        data.is_kosher === false ? 'not_kosher' : 'not_found'
 
       const product: KosherProduct | undefined =
-        data.product_name || data.certifier
-          ? {
-              name: data.product_name || 'Producto analizado por foto',
-              brand: data.brand || undefined,
-              category: data.category as any || undefined,
-              certifier: data.certifier as any || undefined,
-              is_kosher: data.is_kosher ?? false,
-              notes: data.notes || undefined,
-            }
-          : undefined
+        data.product_name || data.certifier ? {
+          name: data.product_name || 'Producto analizado por foto',
+          brand: data.brand || undefined,
+          category: data.category as any || undefined,
+          certifier: data.certifier as any || undefined,
+          is_kosher: data.is_kosher ?? false,
+          notes: data.notes || undefined,
+        } : undefined
 
       addToHistory({
         query: data.product_name || 'Foto de sello/etiqueta',
@@ -89,23 +89,23 @@ export default function PhotoAnalyzer({ onResult }: Props) {
         method: 'photo',
       })
 
-      onResult({ status, product, query: data.product_name || 'Foto', method: 'photo' })
-
     } catch (e: any) {
       setError(e.message || 'Error desconocido al analizar la imagen')
     } finally {
       setLoading(false)
     }
-  }, [onResult])
+  }, [])
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setPreview(URL.createObjectURL(file))
+    const url = URL.createObjectURL(file)
+    setPreview(url)
     setAnalysis(null)
     setError(null)
     setSaved(false)
-    analyzeImage(file)
+    // Pequeño delay para que el preview renderice antes de arrancar el análisis pesado
+    setTimeout(() => analyzeImage(file), 100)
     e.target.value = ''
   }
 
@@ -129,6 +129,26 @@ export default function PhotoAnalyzer({ onResult }: Props) {
     }
   }
 
+  // Navegar al home con el resultado
+  const handleGoToResult = () => {
+    if (!analysis) return
+    const status: 'kosher' | 'not_kosher' | 'not_found' =
+      analysis.is_kosher === true ? 'kosher' :
+      analysis.is_kosher === false ? 'not_kosher' : 'not_found'
+
+    const product: KosherProduct | undefined =
+      analysis.product_name || analysis.certifier ? {
+        name: analysis.product_name || 'Producto analizado por foto',
+        brand: analysis.brand || undefined,
+        category: analysis.category as any || undefined,
+        certifier: analysis.certifier as any || undefined,
+        is_kosher: analysis.is_kosher ?? false,
+        notes: analysis.notes || undefined,
+      } : undefined
+
+    onResult({ status, product, query: analysis.product_name || 'Foto', method: 'photo' })
+  }
+
   const reset = () => {
     setPreview(null)
     setAnalysis(null)
@@ -147,6 +167,7 @@ export default function PhotoAnalyzer({ onResult }: Props) {
         Funciona con la etiqueta completa <strong>o</strong> solo el sello kosher (OU, OK, KMD…)
       </p>
 
+      {/* Preview de la foto */}
       {preview && (
         <div className="relative mb-4">
           <img src={preview} alt="Foto" className="w-full rounded-2xl shadow-md max-h-64 object-contain bg-black" />
@@ -156,13 +177,16 @@ export default function PhotoAnalyzer({ onResult }: Props) {
         </div>
       )}
 
+      {/* Spinner de análisis */}
       {loading && (
-        <div className="flex flex-col items-center py-10 gap-3">
-          <div className="w-10 h-10 border-4 border-kosher-green border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-kosher-text-light">Claude Vision analizando la imagen…</p>
+        <div className="flex flex-col items-center py-8 gap-3 bg-white rounded-2xl border border-kosher-border mb-4">
+          <div className="w-12 h-12 border-4 border-kosher-green border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm font-semibold text-kosher-text">Analizando con Claude Vision…</p>
+          <p className="text-xs text-kosher-text-light">Buscando sellos kosher en la imagen</p>
         </div>
       )}
 
+      {/* Error */}
       {error && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl">
           <p className="text-sm font-semibold text-red-700 mb-1">⚠️ Error al analizar</p>
@@ -171,65 +195,92 @@ export default function PhotoAnalyzer({ onResult }: Props) {
         </div>
       )}
 
+      {/* Resultado del análisis — visible en la misma pantalla */}
       {analysis && !loading && (
-        <div className={`mb-4 p-4 rounded-2xl border-2 ${
-          analysis.is_kosher === true ? 'bg-green-50 border-green-500' :
-          analysis.is_kosher === false ? 'bg-red-50 border-red-400' :
-          'bg-amber-50 border-amber-400'
+        <div className={`mb-4 rounded-2xl border-2 overflow-hidden ${
+          analysis.is_kosher === true ? 'border-green-500' :
+          analysis.is_kosher === false ? 'border-red-400' : 'border-amber-400'
         }`}>
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-3xl">
+          {/* Banner de resultado */}
+          <div className={`px-4 py-4 flex items-center gap-3 ${
+            analysis.is_kosher === true ? 'bg-green-500' :
+            analysis.is_kosher === false ? 'bg-red-500' : 'bg-amber-400'
+          }`}>
+            <span className="text-4xl">
               {analysis.is_kosher === true ? '✅' : analysis.is_kosher === false ? '❌' : '⚠️'}
             </span>
             <div>
-              <div className={`font-black text-lg ${
-                analysis.is_kosher === true ? 'text-green-800' :
-                analysis.is_kosher === false ? 'text-red-800' : 'text-amber-800'
-              }`}>
+              <div className="font-black text-2xl text-white">
                 {analysis.is_kosher === true ? 'KOSHER' : analysis.is_kosher === false ? 'NO KOSHER' : 'NO DETERMINADO'}
               </div>
-              {analysis.product_name && <div className="text-sm text-kosher-text">{analysis.product_name}</div>}
+              {analysis.product_name && (
+                <div className="text-sm text-white/90">{analysis.product_name}</div>
+              )}
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 mb-2">
-            {analysis.certifier && (
-              <span className="text-xs font-bold px-2.5 py-1 bg-kosher-blue text-white rounded-full">{analysis.certifier}</span>
-            )}
-            {analysis.category && (
-              <span className="text-xs px-2.5 py-1 bg-white border border-kosher-border rounded-full">{catLabel[analysis.category] || analysis.category}</span>
-            )}
-            {analysis.brand && (
-              <span className="text-xs px-2.5 py-1 bg-white border border-kosher-border rounded-full text-kosher-text-light">{analysis.brand}</span>
-            )}
-          </div>
-
-          {analysis.notes && <p className="text-xs text-kosher-text-light italic mb-3">{analysis.notes}</p>}
-
-          {analysis.is_kosher !== null && !saved && (
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="w-full py-2.5 bg-kosher-gold text-white rounded-xl text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60"
-            >
-              {saving ? 'Guardando…' : '💾 Guardar en base de datos'}
-            </button>
-          )}
-          {saved && (
-            <div className="text-center text-sm text-green-700 font-semibold py-1.5">
-              ✅ Guardado — aparecerá en búsquedas futuras
+          {/* Detalles */}
+          <div className={`px-4 py-3 ${
+            analysis.is_kosher === true ? 'bg-green-50' :
+            analysis.is_kosher === false ? 'bg-red-50' : 'bg-amber-50'
+          }`}>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {analysis.certifier && (
+                <span className="text-sm font-bold px-3 py-1 bg-kosher-blue text-white rounded-full">
+                  {analysis.certifier}
+                </span>
+              )}
+              {analysis.category && (
+                <span className="text-sm px-3 py-1 bg-white border border-kosher-border rounded-full">
+                  {catLabel[analysis.category] || analysis.category}
+                </span>
+              )}
+              {analysis.brand && (
+                <span className="text-sm px-3 py-1 bg-white border border-kosher-border rounded-full text-kosher-text-light">
+                  {analysis.brand}
+                </span>
+              )}
             </div>
-          )}
+
+            {analysis.notes && (
+              <p className="text-xs text-kosher-text-light italic mb-3">{analysis.notes}</p>
+            )}
+
+            {/* Botones de acción */}
+            <div className="flex gap-2">
+              {analysis.is_kosher !== null && !saved && (
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="flex-1 py-2.5 bg-kosher-gold text-white rounded-xl text-sm font-semibold active:scale-95 transition-transform disabled:opacity-60"
+                >
+                  {saving ? 'Guardando…' : '💾 Guardar'}
+                </button>
+              )}
+              {saved && (
+                <div className="flex-1 text-center text-sm text-green-700 font-semibold py-2.5">
+                  ✅ Guardado
+                </div>
+              )}
+              <button
+                onClick={reset}
+                className="flex-1 py-2.5 bg-white border border-kosher-border text-kosher-text-light rounded-xl text-sm font-semibold active:scale-95 transition-transform"
+              >
+                📸 Nueva foto
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
+      {/* Botones de cámara — ocultos mientras carga */}
       {!loading && (
         <>
-          {!preview && (
+          {!preview && !analysis && (
             <div className="border-2 border-dashed border-kosher-border rounded-2xl p-8 mb-4 flex flex-col items-center gap-3 bg-white">
               <div className="text-5xl">📸</div>
               <p className="text-sm text-kosher-text-light text-center">
-                Puedes fotografiar la etiqueta completa <br/>o <strong>acercarte solo al sello</strong>
+                Fotografía la etiqueta completa<br />o <strong>acércate solo al sello</strong>
               </p>
             </div>
           )}
@@ -242,7 +293,7 @@ export default function PhotoAnalyzer({ onResult }: Props) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            {preview ? 'Tomar otra foto' : 'Tomar foto'}
+            {analysis ? 'Tomar otra foto' : 'Tomar foto'}
           </button>
 
           <button
@@ -260,7 +311,7 @@ export default function PhotoAnalyzer({ onResult }: Props) {
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFile} />
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
 
-      {!preview && !loading && (
+      {!preview && !loading && !analysis && (
         <div className="mt-4 p-3 bg-kosher-warm rounded-xl border border-kosher-border">
           <p className="text-xs text-kosher-text-light text-center">
             🔍 Claude detecta sellos OU, OK, KD, KMD y otros — incluso si son pequeños
