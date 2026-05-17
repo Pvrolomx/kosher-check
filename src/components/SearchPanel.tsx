@@ -102,7 +102,7 @@ export default function SearchPanel({ onResult }: Props) {
         is_kosher: product.is_kosher,
         notes: product.notes || null,
       })
-      setSaved(prev => new Set([...prev, index]))
+      setSaved(prev => new Set(Array.from(prev).concat(index)))
       syncProductsToCache()
     } catch {
       // silent fail
